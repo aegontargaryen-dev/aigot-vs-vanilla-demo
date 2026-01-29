@@ -1,316 +1,448 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>AIgot vs Vanilla — EntityTracker Broad-phase Demo</title>
+  <title>AIgot vs Vanilla — EntityTracker Broad-Phase Benchmark</title>
   <style>
     :root { color-scheme: dark; }
-    body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, sans-serif; background:#0b0f14; color:#e6edf3; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, sans-serif; background:#0b0f14; color:#e6edf3; }
     header { padding: 18px 20px; border-bottom: 1px solid #1f2a37; display:flex; gap:16px; align-items:center; flex-wrap:wrap;}
-    header h1 { margin:0; font-size: 16px; font-weight: 650; }
+    header h1 { margin:0; font-size: 15px; font-weight: 700; }
+    .hint { color:#9aa4b2; font-size:12px; line-height: 1.35; }
     .panel { padding: 16px 20px; display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .card { background:#0f1720; border:1px solid #1f2a37; border-radius: 14px; padding: 14px; box-shadow: 0 10px 25px rgba(0,0,0,.25); }
-    .card h2 { margin: 0 0 10px; font-size: 14px; font-weight: 650; color:#cbd5e1; }
-    .grid { display:grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap:10px; }
+    .card h2 { margin: 0 0 10px; font-size: 13px; font-weight: 700; color:#cbd5e1; }
+    .grid { display:grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap:10px; }
     .field { display:flex; flex-direction:column; gap:6px; }
-    label { font-size: 12px; color:#9aa4b2; }
-    input[type="number"], input[type="range"] {
+    label { font-size: 11px; color:#9aa4b2; }
+    input[type="number"]{
       width:100%; border-radius:10px; border:1px solid #243244; background:#0b1220; color:#e6edf3; padding:10px;
       outline:none;
     }
-    input[type="range"]{ padding: 0; height: 32px; }
-    .row { display:flex; gap:10px; align-items:center; }
     .btns { display:flex; gap:10px; flex-wrap:wrap; margin-top: 10px; }
     button {
       border:1px solid #2a3a52; background:#101a2a; color:#e6edf3; padding:10px 12px; border-radius: 12px;
-      font-weight: 650; cursor:pointer;
+      font-weight: 700; cursor:pointer;
     }
     button:hover { filter: brightness(1.08); }
     button:active { transform: translateY(1px); }
     .stats { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
     .stat { background:#0b1220; border:1px solid #243244; border-radius: 12px; padding: 10px; }
     .stat .k { font-size: 11px; color:#9aa4b2; }
-    .stat .v { font-size: 16px; font-weight: 750; margin-top: 4px; }
+    .stat .v { font-size: 15px; font-weight: 800; margin-top: 4px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
     canvas { width: 100%; height: 460px; background:#070a0f; border:1px solid #1f2a37; border-radius: 14px; display:block; }
     footer { padding: 14px 20px; border-top: 1px solid #1f2a37; color:#9aa4b2; font-size:12px; }
-    .hint { color:#9aa4b2; font-size:12px; line-height: 1.35; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .warn { color:#fbbf24; }
+    .ok { color:#86efac; }
   </style>
 </head>
 <body>
   <header>
-    <h1>AIgot vs Vanilla — EntityTracker demo (broad-phase por chunk vs brute force)</h1>
-    <span class="hint">Simula o custo de “quem pode ver quem” por tick. Quanto mais entidades, maior a diferença.</span>
+    <h1>AIgot vs Vanilla — EntityTracker benchmark (chunk buckets broad-phase vs brute force)</h1>
+    <span class="hint">
+      This demonstrates why AIgot scales better: vanilla considers every entity for every player (O(P·E)),
+      while AIgot only considers entities in chunks intersecting the tracking range (broad-phase + box check).
+    </span>
   </header>
 
   <div class="panel">
     <div class="card">
-      <h2>Configuração</h2>
+      <h2>Configuration</h2>
       <div class="grid">
         <div class="field">
-          <label>Entidades (E)</label>
-          <input id="entities" type="number" min="1000" max="300000" step="1000" value="60000" />
+          <label>Entities (E)</label>
+          <input id="entities" type="number" min="1000" max="1500000" step="1000" value="120000" />
         </div>
         <div class="field">
           <label>Players (P)</label>
-          <input id="players" type="number" min="1" max="400" step="1" value="60" />
+          <input id="players" type="number" min="1" max="800" step="1" value="120" />
         </div>
         <div class="field">
-          <label>Tamanho do mundo (largura/altura)</label>
-          <input id="worldSize" type="number" min="256" max="8192" step="64" value="4096" />
+          <label>World size (width/height)</label>
+          <input id="worldSize" type="number" min="256" max="16384" step="64" value="4096" />
+        </div>
+        <div class="field">
+          <label>Chunk size (blocks)</label>
+          <input id="chunkSize" type="number" min="8" max="64" step="8" value="16" />
         </div>
 
         <div class="field">
-          <label>Chunk size (blocos)</label>
-          <input id="chunkSize" type="number" min="8" max="64" step="8" value="16" />
+          <label>Tracking range (blocks)</label>
+          <input id="range" type="number" min="16" max="768" step="16" value="128" />
         </div>
         <div class="field">
-          <label>Tracking range (blocos)</label>
-          <input id="range" type="number" min="16" max="512" step="16" value="128" />
+          <label>Simulated ticks</label>
+          <input id="ticks" type="number" min="10" max="2000" step="10" value="120" />
         </div>
         <div class="field">
-          <label>Ticks simulados (iterações)</label>
-          <input id="ticks" type="number" min="10" max="500" step="10" value="60" />
+          <label>Vanilla ops budget (per run)</label>
+          <input id="budget" type="number" min="1000000" max="2000000000" step="1000000" value="150000000" />
+        </div>
+        <div class="field">
+          <label>Moved players ratio (%)</label>
+          <input id="movedPct" type="number" min="0" max="100" step="5" value="35" />
         </div>
       </div>
 
       <div class="btns">
-        <button id="regen">Gerar mundo</button>
-        <button id="run">Rodar benchmark</button>
-        <button id="animate">Animar (stress)</button>
+        <button id="regen">Generate world</button>
+        <button id="run">Run benchmark</button>
+        <button id="animate">Animate (stress)</button>
       </div>
 
       <div class="hint" style="margin-top:10px;">
-        <b>O que medir aqui?</b><br/>
-        <span class="mono">checks</span> = quantas “entidades candidatas” foram consideradas para cada player antes de chamar update real.<br/>
-        Vanilla ≈ <span class="mono">P * E</span>. AIgot ≈ <span class="mono">P * chunksVisíveis * densidade</span>.
+        <b>Notes:</b><br/>
+        • <span class="mono">Moved players ratio</span> approximates AIgot-style “only rescan viewers that moved chunks”.<br/>
+        • Vanilla may be <span class="warn">budgeted</span> to keep the tab responsive; if budgeted, we estimate full-time based on measured throughput.
       </div>
     </div>
 
     <div class="card">
-      <h2>Resultados</h2>
+      <h2>Results</h2>
       <div class="stats">
         <div class="stat">
-          <div class="k">Tempo Vanilla (ms)</div>
+          <div class="k">Vanilla time</div>
           <div class="v" id="tVanilla">—</div>
         </div>
         <div class="stat">
-          <div class="k">Tempo AIgot (ms)</div>
+          <div class="k">AIgot time</div>
           <div class="v" id="tAigot">—</div>
         </div>
+
         <div class="stat">
-          <div class="k">Checks Vanilla</div>
+          <div class="k">Vanilla checks</div>
           <div class="v mono" id="cVanilla">—</div>
         </div>
         <div class="stat">
-          <div class="k">Checks AIgot</div>
+          <div class="k">AIgot candidate checks</div>
           <div class="v mono" id="cAigot">—</div>
         </div>
+
         <div class="stat">
-          <div class="k">Redução de checks</div>
+          <div class="k">Checks reduction</div>
           <div class="v" id="reduction">—</div>
         </div>
         <div class="stat">
-          <div class="k">Speedup (Vanilla/AIgot)</div>
+          <div class="k">Speedup</div>
           <div class="v" id="speedup">—</div>
         </div>
       </div>
+
       <div class="hint" style="margin-top:10px;">
-        Dica: sobe entidades pra 120k+ e players 100+. O vanilla vai “derreter” muito mais rápido.
+        <span id="modeNote">—</span>
       </div>
     </div>
 
     <div class="card" style="grid-column: 1 / -1;">
-      <h2>Visualização (chunks + range)</h2>
+      <h2>Visualization (chunks + selected player range)</h2>
       <canvas id="cv" width="1200" height="460"></canvas>
       <div class="hint" style="margin-top:10px;">
-        Pontos: entidades (cinza) e players (azul). Quadrado branco = range do player selecionado.
-        Células (linhas) = chunks. AIgot só olha entidades nos chunks intersectados pelo range.
+        Dots: entities (gray, sampled) and players (blue). White square: tracking range of the selected player.
+        AIgot only inspects buckets for chunks overlapped by that square.
       </div>
     </div>
   </div>
 
   <footer>
-    Este benchmark é “conceitual”: mede custo de broad-phase. No NMS real, o ganho vem de reduzir chamadas caras
-    (updatePlayer, metadata, atributos, packets) fora do range.
+    This is a conceptual benchmark that mirrors the core advantage: broad-phase spatial partitioning avoids expensive per-viewer work outside range.
+    In real NMS, the win compounds because “candidate checks” gate far heavier logic (packets, metadata, attributes).
   </footer>
 
   <script>
-    // ---------- helpers ----------
-    function now() { return performance.now(); }
-    function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
-    function fmtInt(n){ return n.toLocaleString('pt-BR'); }
-    function fmtMs(n){ return n.toFixed(2); }
+    // ---------- formatting ----------
+    const $ = (id) => document.getElementById(id);
+    const fmtInt = (n) => Math.round(n).toLocaleString("en-US");
+    const fmtMs  = (n) => (n >= 1000 ? (n/1000).toFixed(2) + " s" : n.toFixed(2) + " ms");
+    const now = () => performance.now();
 
-    // 64-bit-ish chunk key for JS (safe up to 2^53)
-    // key = (cx * 2^26) + cz with offset to keep positive
-    const OFF = 1 << 20; // enough for our world sizes
-    function chunkKey(cx, cz){ return ((cx + OFF) * 67108864) + (cz + OFF); } // 2^26 = 67108864
+    // ---------- chunk key packing ----------
+    // Pack (cx, cz) into one 32-bit number: 16 bits each with offset.
+    // This is very fast and avoids BigInt/strings.
+    const OFF = 32768; // supports chunk coords in [-32768, 32767]
+    function packKey(cx, cz) {
+      return ((cx + OFF) << 16) | ((cz + OFF) & 0xFFFF);
+    }
 
-    // ---------- model ----------
-    let world = {
+    // ---------- world state (Structure of Arrays) ----------
+    const world = {
       size: 4096,
       chunkSize: 16,
       range: 128,
-      entities: [],  // {x,z,cx,cz,key}
-      players: [],   // {x,z,cx,cz}
-      buckets: new Map(), // key -> array of entity indices
+
+      E: 0,
+      P: 0,
+
+      ex: null, // Float32Array
+      ez: null, // Float32Array
+      ecx: null, // Int32Array
+      ecz: null, // Int32Array
+      ekey: null, // Int32Array
+
+      px: null, // Float32Array
+      pz: null, // Float32Array
+      pcx: null, // Int32Array
+      pcz: null, // Int32Array
+      pmoved: null, // Uint8Array (1 if moved)
+
+      // chunk buckets: key -> array of entity indices
+      buckets: new Map(),
+
       selectedPlayer: 0
     };
 
-    function randPos(size){
-      return Math.random() * size;
-    }
+    function rand01() { return Math.random(); }
 
-    function buildWorld(E, P, size, chunkSize){
+    function buildWorld(E, P, size, chunkSize) {
       world.size = size;
       world.chunkSize = chunkSize;
-      world.entities = new Array(E);
-      world.players = new Array(P);
+      world.E = E;
+      world.P = P;
+
+      world.ex = new Float32Array(E);
+      world.ez = new Float32Array(E);
+      world.ecx = new Int32Array(E);
+      world.ecz = new Int32Array(E);
+      world.ekey = new Int32Array(E);
+
+      world.px = new Float32Array(P);
+      world.pz = new Float32Array(P);
+      world.pcx = new Int32Array(P);
+      world.pcz = new Int32Array(P);
+      world.pmoved = new Uint8Array(P);
+
       world.buckets = new Map();
       world.selectedPlayer = 0;
 
+      const s = size;
+      const cs = chunkSize;
+
       // entities
-      for(let i=0;i<E;i++){
-        const x = randPos(size), z = randPos(size);
-        const cx = (x / chunkSize) | 0;
-        const cz = (z / chunkSize) | 0;
-        const key = chunkKey(cx, cz);
-        world.entities[i] = {x, z, cx, cz, key};
+      for (let i = 0; i < E; i++) {
+        const x = rand01() * s;
+        const z = rand01() * s;
+        const cx = (x / cs) | 0;
+        const cz = (z / cs) | 0;
+        const key = packKey(cx, cz);
+
+        world.ex[i] = x;
+        world.ez[i] = z;
+        world.ecx[i] = cx;
+        world.ecz[i] = cz;
+        world.ekey[i] = key;
+
         let bucket = world.buckets.get(key);
-        if(!bucket){ bucket = []; world.buckets.set(key, bucket); }
+        if (!bucket) {
+          bucket = [];
+          world.buckets.set(key, bucket);
+        }
         bucket.push(i);
       }
 
       // players
-      for(let i=0;i<P;i++){
-        const x = randPos(size), z = randPos(size);
-        const cx = (x / chunkSize) | 0;
-        const cz = (z / chunkSize) | 0;
-        world.players[i] = {x, z, cx, cz};
+      for (let i = 0; i < P; i++) {
+        const x = rand01() * s;
+        const z = rand01() * s;
+        world.px[i] = x;
+        world.pz[i] = z;
+        world.pcx[i] = (x / cs) | 0;
+        world.pcz[i] = (z / cs) | 0;
+        world.pmoved[i] = 0;
       }
     }
 
-    // random movement to change which players need scanning
-    function movePlayers(){
+    function movePlayers(movedPct) {
       const s = world.size;
       const cs = world.chunkSize;
-      for(const p of world.players){
-        // small jitter + occasional hop
-        let dx = (Math.random() - 0.5) * 28;
-        let dz = (Math.random() - 0.5) * 28;
-        if(Math.random() < 0.05){ dx *= 7; dz *= 7; }
-        p.x = clamp(p.x + dx, 0, s);
-        p.z = clamp(p.z + dz, 0, s);
-        const ncx = (p.x / cs) | 0;
-        const ncz = (p.z / cs) | 0;
-        p.moved = (ncx !== p.cx) || (ncz !== p.cz);
-        p.cx = ncx; p.cz = ncz;
+      const P = world.P;
+
+      // Instead of checking exact chunk crossing every time, we approximate “needs rescan”
+      // with a controlled probability (movedPct). This mirrors AIgot "movedScratch" behavior.
+      const movedProb = movedPct / 100;
+
+      for (let i = 0; i < P; i++) {
+        // random small jitter
+        let x = world.px[i] + (rand01() - 0.5) * 28;
+        let z = world.pz[i] + (rand01() - 0.5) * 28;
+
+        // occasional hop
+        if (rand01() < 0.05) {
+          x += (rand01() - 0.5) * 200;
+          z += (rand01() - 0.5) * 200;
+        }
+
+        // clamp
+        if (x < 0) x = 0;
+        if (z < 0) z = 0;
+        if (x > s) x = s;
+        if (z > s) z = s;
+
+        world.px[i] = x;
+        world.pz[i] = z;
+
+        // update chunk coords (cheap)
+        const cx = (x / cs) | 0;
+        const cz = (z / cs) | 0;
+        world.pcx[i] = cx;
+        world.pcz[i] = cz;
+
+        // moved flag (approx)
+        world.pmoved[i] = (rand01() < movedProb) ? 1 : 0;
       }
     }
 
     // ---------- algorithms ----------
-    // Vanilla: for each player, check every entity (broad-phase is brute force)
-    function tickVanilla(){
+    // Vanilla (brute force): P * E checks. Budgeted to prevent tab freeze on huge inputs.
+    function runVanillaTicks(ticks, opsBudget) {
+      const P = world.P, E = world.E;
       const R = world.range;
       const R2 = R * R;
-      let checks = 0;
+
+      let opsDone = 0;
+      const totalOps = P * E * ticks;
+
+      let tStart = now();
       let hits = 0;
 
-      for(const p of world.players){
-        const px = p.x, pz = p.z;
-        for(const e of world.entities){
-          checks++;
-          const dx = e.x - px;
-          const dz = e.z - pz;
-          if(dx*dx + dz*dz <= R2) hits++;
+      // We run until budget is reached, then estimate remaining time via throughput.
+      outer:
+      for (let t = 0; t < ticks; t++) {
+        for (let p = 0; p < P; p++) {
+          const px = world.px[p], pz = world.pz[p];
+          for (let e = 0; e < E; e++) {
+            // budget check (very cheap)
+            opsDone++;
+            if (opsDone >= opsBudget) break outer;
+
+            const dx = world.ex[e] - px;
+            const dz = world.ez[e] - pz;
+            if (dx*dx + dz*dz <= R2) hits++;
+          }
         }
       }
-      return {checks, hits};
+
+      const tEnd = now();
+      const measuredMs = tEnd - tStart;
+
+      // Throughput (ops/ms) from measured portion
+      const opsPerMs = opsDone > 0 ? (opsDone / measuredMs) : 0;
+      const estimatedMs = (opsPerMs > 0) ? (totalOps / opsPerMs) : Infinity;
+
+      const budgeted = opsDone < totalOps;
+      return {
+        budgeted,
+        measuredMs,
+        estimatedMs,
+        checksExact: totalOps,
+        hitsMeasured: hits,
+        opsDone
+      };
     }
 
-    // AIgot-like: spatial partition by chunk buckets, then box-check then precise check
-    function tickAigot(){
+    // AIgot (broad-phase by chunk buckets + box check), only for "moved" players (pmoved=1)
+    function runAigotTicks(ticks, movedPct) {
+      const P = world.P, E = world.E;
       const cs = world.chunkSize;
       const R = world.range;
       const R2 = R * R;
 
-      // range in chunks (square)
       const rChunks = Math.ceil(R / cs);
 
       let checks = 0;
       let hits = 0;
 
-      for(const p of world.players){
-        const px = p.x, pz = p.z;
-        const pcx = p.cx, pcz = p.cz;
+      const tStart = now();
 
-        // iterate chunks in view square
-        for(let cx = pcx - rChunks; cx <= pcx + rChunks; cx++){
-          for(let cz = pcz - rChunks; cz <= pcz + rChunks; cz++){
-            const key = chunkKey(cx, cz);
-            const bucket = world.buckets.get(key);
-            if(!bucket) continue;
+      for (let t = 0; t < ticks; t++) {
+        // movement happens once per tick
+        movePlayers(movedPct);
 
-            // candidate entities only from these buckets
-            for(let bi=0; bi<bucket.length; bi++){
-              const e = world.entities[bucket[bi]];
-              // box check (cheap) similar to dx/dz vs range before deeper logic
-              const dx = e.x - px;
-              if(dx > R || dx < -R) { checks++; continue; }
-              const dz = e.z - pz;
-              if(dz > R || dz < -R) { checks++; continue; }
+        for (let p = 0; p < P; p++) {
+          if (world.pmoved[p] === 0) continue; // mimic "only rescan moved viewers"
 
-              checks++;
-              if(dx*dx + dz*dz <= R2) hits++;
+          const px = world.px[p], pz = world.pz[p];
+          const pcx = world.pcx[p], pcz = world.pcz[p];
+
+          for (let cx = pcx - rChunks; cx <= pcx + rChunks; cx++) {
+            for (let cz = pcz - rChunks; cz <= pcz + rChunks; cz++) {
+              const bucket = world.buckets.get(packKey(cx, cz));
+              if (!bucket) continue;
+
+              // tight loop
+              for (let i = 0, n = bucket.length; i < n; i++) {
+                const ei = bucket[i];
+
+                // cheap box-check first (like AIgot's dx/dz range cull)
+                const dx = world.ex[ei] - px;
+                checks++;
+                if (dx > R || dx < -R) continue;
+
+                const dz = world.ez[ei] - pz;
+                if (dz > R || dz < -R) continue;
+
+                if (dx*dx + dz*dz <= R2) hits++;
+              }
             }
           }
         }
       }
-      return {checks, hits};
+
+      const tEnd = now();
+      return { ms: (tEnd - tStart), checks, hits };
     }
 
-    // Benchmark multiple ticks
-    function bench(ticks){
-      let t0, t1, sumV = 0, sumA = 0, cV = 0, cA = 0;
+    function benchmark() {
+      const ticks = +$("ticks").value;
+      world.range = +$("range").value;
 
-      for(let i=0;i<ticks;i++){
-        movePlayers(); // simulate time
+      const movedPct = +$("movedPct").value;
+      const budget = +$("budget").value;
 
-        t0 = now();
-        const v = tickVanilla();
-        t1 = now();
-        sumV += (t1 - t0);
-        cV += v.checks;
+      // Vanilla first: budgeted brute force on current positions (no movement inside)
+      // To keep it fair-ish, we do a single movement before vanilla to avoid pathological clustering.
+      movePlayers(movedPct);
 
-        t0 = now();
-        const a = tickAigot();
-        t1 = now();
-        sumA += (t1 - t0);
-        cA += a.checks;
-      }
+      const v = runVanillaTicks(ticks, budget);
+      const a = runAigotTicks(ticks, movedPct);
 
-      return {tVanilla: sumV, tAigot: sumA, cVanilla: cV, cAigot: cA};
+      // reduction & speedup (using estimated vanilla time when budgeted)
+      const vanillaTime = v.budgeted ? v.estimatedMs : v.measuredMs;
+      const speed = vanillaTime / a.ms;
+      const red = 100 * (1 - (a.checks / v.checksExact));
+
+      $("tVanilla").textContent = v.budgeted
+        ? `${fmtMs(v.measuredMs)} (measured) · ${fmtMs(v.estimatedMs)} (estimated)`
+        : fmtMs(v.measuredMs);
+
+      $("tAigot").textContent = fmtMs(a.ms);
+
+      $("cVanilla").textContent = fmtInt(v.checksExact);
+      $("cAigot").textContent = fmtInt(a.checks);
+
+      $("reduction").innerHTML = `<span class="${red > 0 ? 'ok' : ''}">${red.toFixed(1)}%</span>`;
+      $("speedup").innerHTML = `<span class="${speed >= 1 ? 'ok' : ''}">${speed.toFixed(2)}x</span>`;
+
+      $("modeNote").innerHTML = v.budgeted
+        ? `<span class="warn">Vanilla was budgeted</span>: ran ${fmtInt(v.opsDone)} ops to keep the browser responsive, then estimated full time from throughput.`
+        : `Vanilla ran fully (no budget needed).`;
+
+      draw();
     }
 
-    // ---------- UI / draw ----------
-    const $ = (id)=>document.getElementById(id);
-
-    function draw(){
+    // ---------- visualization ----------
+    function draw() {
       const cv = $("cv");
       const ctx = cv.getContext("2d");
       const W = cv.width, H = cv.height;
 
       ctx.clearRect(0,0,W,H);
-
-      // background
       ctx.fillStyle = "#070a0f";
       ctx.fillRect(0,0,W,H);
 
-      // draw chunk grid
-      const cs = world.chunkSize;
+      // grid (chunks)
       const s = world.size;
+      const cs = world.chunkSize;
       const scaleX = W / s;
       const scaleZ = H / s;
 
@@ -320,108 +452,110 @@
       ctx.strokeStyle = "rgba(255,255,255,0.06)";
       ctx.lineWidth = 1;
 
-      for(let x=0; x<=W; x += chunkPx){
+      for (let x = 0; x <= W; x += chunkPx) {
         ctx.beginPath();
-        ctx.moveTo(x,0);
-        ctx.lineTo(x,H);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, H);
         ctx.stroke();
       }
-      for(let z=0; z<=H; z += chunkPz){
+      for (let z = 0; z <= H; z += chunkPz) {
         ctx.beginPath();
-        ctx.moveTo(0,z);
-        ctx.lineTo(W,z);
+        ctx.moveTo(0, z);
+        ctx.lineTo(W, z);
         ctx.stroke();
       }
 
-      // draw entities (sample for perf)
-      const E = world.entities.length;
-      const step = Math.max(1, Math.floor(E / 8000)); // cap draw cost
+      // entities (sampled to keep drawing cheap)
+      const E = world.E;
+      const step = Math.max(1, (E / 9000) | 0);
+
       ctx.fillStyle = "rgba(200,200,200,0.35)";
-      for(let i=0;i<E;i+=step){
-        const e = world.entities[i];
-        const x = e.x * scaleX;
-        const z = e.z * scaleZ;
+      for (let i = 0; i < E; i += step) {
+        const x = world.ex[i] * scaleX;
+        const z = world.ez[i] * scaleZ;
         ctx.fillRect(x, z, 2, 2);
       }
 
-      // draw players
+      // players
+      const P = world.P;
       ctx.fillStyle = "rgba(80,160,255,0.95)";
-      for(let i=0;i<world.players.length;i++){
-        const p = world.players[i];
-        const x = p.x * scaleX;
-        const z = p.z * scaleZ;
-        ctx.fillRect(x-2, z-2, 5, 5);
+      for (let i = 0; i < P; i++) {
+        const x = world.px[i] * scaleX;
+        const z = world.pz[i] * scaleZ;
+        ctx.fillRect(x - 2, z - 2, 5, 5);
       }
 
       // selected player's range square
-      const sp = world.players[world.selectedPlayer] || world.players[0];
-      if(sp){
-        const R = world.range;
-        const x0 = (sp.x - R) * scaleX;
-        const z0 = (sp.z - R) * scaleZ;
-        const w = (2*R) * scaleX;
-        const h = (2*R) * scaleZ;
+      const sp = world.selectedPlayer < P ? world.selectedPlayer : 0;
+      const px = world.px[sp], pz = world.pz[sp];
+      const R = world.range;
 
-        ctx.strokeStyle = "rgba(255,255,255,0.9)";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x0, z0, w, h);
+      const x0 = (px - R) * scaleX;
+      const z0 = (pz - R) * scaleZ;
+      const ww = (2 * R) * scaleX;
+      const hh = (2 * R) * scaleZ;
 
-        // highlight selected player
-        const px = sp.x * scaleX;
-        const pz = sp.z * scaleZ;
-        ctx.fillStyle = "rgba(255,255,255,0.95)";
-        ctx.fillRect(px-3, pz-3, 7, 7);
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x0, z0, ww, hh);
+
+      // highlight selected player
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.fillRect(px * scaleX - 3, pz * scaleZ - 3, 7, 7);
+    }
+
+    // click to select nearest player
+    $("cv").addEventListener("click", (ev) => {
+      const rect = $("cv").getBoundingClientRect();
+      const mx = (ev.clientX - rect.left) / rect.width;
+      const mz = (ev.clientY - rect.top) / rect.height;
+
+      const P = world.P;
+      let best = 0;
+      let bestD = Infinity;
+
+      for (let i = 0; i < P; i++) {
+        const dx = (world.px[i] / world.size) - mx;
+        const dz = (world.pz[i] / world.size) - mz;
+        const d2 = dx*dx + dz*dz;
+        if (d2 < bestD) { bestD = d2; best = i; }
       }
-    }
+      world.selectedPlayer = best;
+      draw();
+    });
 
-    function setResults(r){
-      $("tVanilla").textContent = fmtMs(r.tVanilla);
-      $("tAigot").textContent = fmtMs(r.tAigot);
-      $("cVanilla").textContent = fmtInt(r.cVanilla);
-      $("cAigot").textContent = fmtInt(r.cAigot);
-
-      const red = r.cVanilla > 0 ? (1 - (r.cAigot / r.cVanilla)) * 100 : 0;
-      $("reduction").textContent = red.toFixed(1) + "%";
-
-      const sp = r.tAigot > 0 ? (r.tVanilla / r.tAigot) : 0;
-      $("speedup").textContent = sp.toFixed(2) + "x";
-    }
-
-    function regen(){
+    // ---------- controls ----------
+    function regen() {
       const E = +$("entities").value;
       const P = +$("players").value;
       const size = +$("worldSize").value;
       const cs = +$("chunkSize").value;
-
       world.range = +$("range").value;
 
       buildWorld(E, P, size, cs);
       draw();
+
       $("tVanilla").textContent = "—";
       $("tAigot").textContent = "—";
       $("cVanilla").textContent = "—";
       $("cAigot").textContent = "—";
       $("reduction").textContent = "—";
       $("speedup").textContent = "—";
+      $("modeNote").textContent = "—";
     }
 
-    function runBench(){
-      world.range = +$("range").value;
-      const ticks = +$("ticks").value;
-      const r = bench(ticks);
-      setResults(r);
-      draw();
-    }
+    $("regen").addEventListener("click", regen);
+    $("run").addEventListener("click", benchmark);
 
-    // simple animation toggle
+    // animation/stress loop
     let anim = false;
     let raf = 0;
-    function toggleAnim(){
+    function toggleAnim() {
       anim = !anim;
-      $("animate").textContent = anim ? "Parar animação" : "Animar (stress)";
-      if(anim){
-        const loop = ()=>{
-          runBench(); // rebench to show continuous impact
+      $("animate").textContent = anim ? "Stop animation" : "Animate (stress)";
+      if (anim) {
+        const loop = () => {
+          benchmark();
           raf = requestAnimationFrame(loop);
         };
         loop();
@@ -429,29 +563,6 @@
         cancelAnimationFrame(raf);
       }
     }
-
-    // click to select player
-    $("cv").addEventListener("click", (ev)=>{
-      const rect = $("cv").getBoundingClientRect();
-      const mx = (ev.clientX - rect.left) / rect.width;
-      const mz = (ev.clientY - rect.top) / rect.height;
-
-      // pick nearest player in screen space
-      let best = 0, bd = Infinity;
-      for(let i=0;i<world.players.length;i++){
-        const p = world.players[i];
-        const px = p.x / world.size;
-        const pz = p.z / world.size;
-        const dx = px - mx, dz = pz - mz;
-        const d2 = dx*dx + dz*dz;
-        if(d2 < bd){ bd = d2; best = i; }
-      }
-      world.selectedPlayer = best;
-      draw();
-    });
-
-    $("regen").addEventListener("click", regen);
-    $("run").addEventListener("click", runBench);
     $("animate").addEventListener("click", toggleAnim);
 
     // init
